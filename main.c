@@ -5,7 +5,7 @@
 #include "extract.h"
 
 int main(int argc, char *argv[]) {
-    // Argüman sayısı kontrolü
+    // argumanlar
     if (argc < 2) {
         fprintf(stderr, "Kullanım: \n"
                         "  tarsau -b dosya1 dosya2 ... -o arsiv.sau\n"
@@ -13,7 +13,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Arşivleme işlemi (-b)
+    // arsivleme
     if (strcmp(argv[1], "-b") == 0) {
         char *files[32];
         int num_files = 0;
@@ -42,17 +42,17 @@ int main(int argc, char *argv[]) {
 
         return archive_files(files, num_files, output_file);
     } 
-    // Arşiv açma işlemi (-a)
+    // cikarma
     else if (strcmp(argv[1], "-a") == 0) {
-        if (argc != 4) {
-            fprintf(stderr, "Hata: Eksik argüman. Kullanım: tarsau -a arsiv.sau hedefDizin\n");
+        if (argc < 3 || argc > 4) {
+            fprintf(stderr, "Hata: Geçersiz argüman. Kullanım: tarsau -a arsiv.sau [hedefDizin]\n");
             return 1;
         }
         const char *archive_file = argv[2];
-        const char *target_dir = argv[3];
+        const char *target_dir = (argc == 4) ? argv[3] : ".";
         return extract_archive(archive_file, target_dir);
     } 
-    // Geçersiz komut
+    // hatali
     else {
         fprintf(stderr, "Hata: Geçersiz parametre %s\n", argv[1]);
         return 1;

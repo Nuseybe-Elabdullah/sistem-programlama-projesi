@@ -1,5 +1,6 @@
 #include "archive.h"
-#include "utils.h"
+#include "validation.h"
+#include "file_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,10 +11,13 @@
 int archive_files(char *files[], int num_files, const char *output_file) {
     size_t total_size = 0;
     
-    // Dosya kontrolleri
+    // dosya kontrolleri
     for (int i = 0; i < num_files; i++) {
         if (!is_ascii_text(files[i])) {
-            fprintf(stderr, "%s giriş dosyasının formatı uyumsuzdur!\n", files[i]);
+            char *err_filename = strrchr(files[i], '/');
+            if (!err_filename) err_filename = files[i];
+            else err_filename++;
+            fprintf(stderr, "%s giriş dosyasının formatı uyumsuzdur!\n", err_filename);
             return 1;
         }
         
@@ -30,7 +34,7 @@ int archive_files(char *files[], int num_files, const char *output_file) {
         return 1;
     }
     
-    // Metadata hazırlığı
+    // metadata yaz
     char *metadata = malloc(16384); // 32 dosya için yeterince büyük bir tampon
     if (!metadata) {
         perror("Bellek ayrılamadı");
@@ -48,14 +52,14 @@ int archive_files(char *files[], int num_files, const char *output_file) {
         if (!filename) filename = files[i];
         else filename++; // Slash'i geç
         
-        // |dosyaAdi,izinler,boyut| formatında yaz
+        // formatla
         snprintf(entry, sizeof(entry), "|%s,%o,%ld|", filename, st.st_mode & 0777, (long)st.st_size);
         strcat(metadata, entry);
     }
     
     size_t metadata_len = strlen(metadata);
     
-    // Arşiv dosyasını yazmak için aç
+    // ciktigi ac
     int out_fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (out_fd < 0) {
         perror("Arşiv dosyası oluşturulamadı");
@@ -63,16 +67,16 @@ int archive_files(char *files[], int num_files, const char *output_file) {
         return 1;
     }
     
-    // Metadata boyutunu 10 byte olarak yaz
+    // 10 byte uzunluk
     char meta_size_str[METADATA_SIZE_LEN + 1];
     snprintf(meta_size_str, sizeof(meta_size_str), "%010lu", (unsigned long)metadata_len);
     write(out_fd, meta_size_str, METADATA_SIZE_LEN);
     
-    // Metadata içeriğini yaz
+    // bilgileri yaz
     write(out_fd, metadata, metadata_len);
     free(metadata);
     
-    // Dosya içeriklerini arka arkaya yaz
+    // icerikleri kopyala
     for (int i = 0; i < num_files; i++) {
         int in_fd = open(files[i], O_RDONLY);
         if (in_fd >= 0) {
@@ -88,5 +92,6 @@ int archive_files(char *files[], int num_files, const char *output_file) {
     }
     
     close(out_fd);
+    printf("Dosyalar birleştirildi.\n");
     return 0;
 }

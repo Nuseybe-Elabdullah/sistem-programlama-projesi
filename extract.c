@@ -1,5 +1,6 @@
 #include "extract.h"
-#include "utils.h"
+#include "validation.h"
+#include "file_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,17 +16,23 @@ int extract_archive(const char *archive_file, const char *target_dir) {
         return 1;
     }
     
-    // Hedef dizini oluştur (yoksa)
-    struct stat st;
-    if (stat(target_dir, &st) == -1) {
-        if (mkdir(target_dir, 0755) != 0) {
+    struct stat arch_st;
+    if (fstat(in_fd, &arch_st) < 0) {
+        fprintf(stderr, "Arşiv dosyası uygunsuz veya bozuk!\n");
+        close(in_fd);
+        return 1;
+    }
+    
+    // dizin oluştur
+    if (strcmp(target_dir, ".") != 0) {
+        if (create_target_dir(target_dir) != 0) {
             perror("Hedef dizin oluşturulamadı");
             close(in_fd);
             return 1;
         }
     }
     
-    // Organizasyon bölümünün ilk 10 byte'ını (metadata boyutu) oku
+    // boyutu oku
     char meta_size_str[METADATA_SIZE_LEN + 1];
     if (read(in_fd, meta_size_str, METADATA_SIZE_LEN) != METADATA_SIZE_LEN) {
         fprintf(stderr, "Arşiv dosyası uygunsuz veya bozuk!\n");
@@ -34,7 +41,7 @@ int extract_archive(const char *archive_file, const char *target_dir) {
     }
     meta_size_str[METADATA_SIZE_LEN] = '\0';
     
-    // Boyut değerini integer'a çevir
+    // sayiya cevir
     size_t meta_size;
     unsigned long tmp_meta_size;
     if (sscanf(meta_size_str, "%lu", &tmp_meta_size) != 1) {
@@ -44,7 +51,13 @@ int extract_archive(const char *archive_file, const char *target_dir) {
     }
     meta_size = (size_t)tmp_meta_size;
     
-    // Metadata'yı okumak için bellek ayır
+    if (meta_size == 0 || meta_size > (size_t)arch_st.st_size) {
+        fprintf(stderr, "Arşiv dosyası uygunsuz veya bozuk!\n");
+        close(in_fd);
+        return 1;
+    }
+    
+    // metadata ayir
     char *metadata = malloc(meta_size + 1);
     if (!metadata) {
         perror("Bellek ayrılamadı");
@@ -52,7 +65,7 @@ int extract_archive(const char *archive_file, const char *target_dir) {
         return 1;
     }
     
-    // Metadata kısmını arşivden oku
+    // metadata kismini oku
     if (read(in_fd, metadata, meta_size) != (ssize_t)meta_size) {
         fprintf(stderr, "Arşiv dosyası uygunsuz veya bozuk!\n");
         free(metadata);
@@ -61,17 +74,30 @@ int extract_archive(const char *archive_file, const char *target_dir) {
     }
     metadata[meta_size] = '\0';
     
-    // Metadata'yı | karakterine göre parse et
+    // token ayir
     char *token = strtok(metadata, "|");
+    int files_extracted = 0;
+    
     while (token != NULL) {
         char filename[256];
         unsigned int mode;
         long size;
         
-        // Örn: dosyaAdi,izinler,boyut
+        // format: dosyaAdi,izinler,boyut
         if (sscanf(token, "%255[^,],%o,%ld", filename, &mode, &size) == 3) {
+            if (!is_safe_filename(filename)) {
+                fprintf(stderr, "Arşiv dosyası uygunsuz veya bozuk!\n");
+                free(metadata);
+                close(in_fd);
+                return 1;
+            }
+            
             char target_path[512];
-            snprintf(target_path, sizeof(target_path), "%s/%s", target_dir, filename);
+            if (strcmp(target_dir, ".") == 0) {
+                snprintf(target_path, sizeof(target_path), "%s", filename);
+            } else {
+                snprintf(target_path, sizeof(target_path), "%s/%s", target_dir, filename);
+            }
             
             int out_fd = open(target_path, O_WRONLY | O_CREAT | O_TRUNC, mode);
             if (out_fd < 0) {
@@ -81,7 +107,7 @@ int extract_archive(const char *archive_file, const char *target_dir) {
                 return 1;
             }
             
-            // Dosya içeriğini byte byte (veya chunk halinde) kopyala
+            // icerigi kopyala
             char buffer[8192];
             long bytes_left = size;
             while (bytes_left > 0) {
@@ -101,13 +127,27 @@ int extract_archive(const char *archive_file, const char *target_dir) {
             }
             close(out_fd);
             
-            // İzinleri Linux stili tekrar ayarla
+            // izinleri duzenle
             chmod(target_path, mode);
+            files_extracted++;
+        } else {
+             fprintf(stderr, "Arşiv dosyası uygunsuz veya bozuk!\n");
+             free(metadata);
+             close(in_fd);
+             return 1;
         }
         token = strtok(NULL, "|");
     }
     
     free(metadata);
     close(in_fd);
+    
+    if (files_extracted > 0) {
+        printf("%s dizininde dosyalar açıldı.\n", target_dir);
+    } else {
+        fprintf(stderr, "Arşiv dosyası uygunsuz veya bozuk!\n");
+        return 1;
+    }
+    
     return 0;
 }
